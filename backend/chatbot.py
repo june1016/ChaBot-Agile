@@ -9,7 +9,7 @@ from langchain.prompts import ChatPromptTemplate
 embedding_model = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
 
 # Cargar la base de datos vectorial
-persist_directory = './chroma_db'
+persist_directory = './chromadb'
 vectorstore = Chroma(
     persist_directory=persist_directory,
     embedding_function=embedding_model
@@ -68,39 +68,58 @@ convo_qa_chain = create_retrieval_chain(
     qa_chain
 )
 
+# Inicializar el historial de chat
+chat_history = []
+
+def get_response(query: str):
+    """
+    Procesa una consulta y devuelve la respuesta junto con las fuentes utilizadas.
+    
+    Args:
+        query (str): La pregunta del usuario.
+        
+    Returns:
+        tuple: (respuesta, fuentes)
+    """
+    result = convo_qa_chain.invoke({
+        "input": query,
+        "chat_history": chat_history
+    })
+
+    # Obtener la respuesta
+    if isinstance(result, dict):
+        response = result.get('answer', 'No se encontró una respuesta.')
+        retrieved_docs = result.get('context', [])
+    else:
+        response = str(result)
+        retrieved_docs = []
+
+    # Obtener las fuentes utilizadas
+    if retrieved_docs:
+        sources = set([doc.metadata.get('source', 'Desconocido') for doc in retrieved_docs])
+        source_info = ', '.join(sources)
+    else:
+        source_info = "No se encontraron fuentes relevantes."
+
+    # Actualizar el historial de chat
+    chat_history.append(("user", query))
+    chat_history.append(("assistant", response))
+
+    return response, source_info
+
 def main():
     print("Bienvenido al Chatbot sobre Metodologías Ágiles. Escribe 'salir' para terminar.")
-    chat_history = []
     while True:
         query = input("\nPor favor, ingresa tu pregunta: ")
         if query.lower() in ['salir', 'exit', 'quit']:
             print("¡Hasta luego!")
             break
 
-        # Ejecutar la cadena de consulta conversacional
-        result = convo_qa_chain.invoke({
-            "input": query,
-            "chat_history": chat_history
-        })
-
-        print(f"Resultado completo: {result}")
-
-        # Verificar la estructura de la respuesta y extraer la respuesta adecuadamente
-        if isinstance(result, dict):
-            if 'output' in result:
-                response = result['output']
-            elif 'answer' in result:
-                response = result['answer']
-            else:
-                response = str(result)  # Convertir todo el resultado a string si no se encuentra una clave específica
-        else:
-            response = str(result)
+        # Obtener la respuesta y las fuentes
+        response, sources = get_response(query)
 
         print(f"\nRespuesta:\n{response}")
-
-        # Actualizar el historial de chat
-        chat_history.append(("user", query))
-        chat_history.append(("assistant", response))
+        print(f"\nFuentes utilizadas: {sources}")
 
 if __name__ == "__main__":
     main()
